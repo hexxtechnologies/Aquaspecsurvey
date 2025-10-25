@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AquaSpec survey</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.46.1/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --pink:#ff52cc; --pinkSoft:#ffd7f5;
+    --blue:#55b6ff; --blueSoft:#d7eeff;
+    --gray:#c7ced9; --graySoft:#eef2f6;
+    --red:#ff6666; --track:#d1d5db;
+    --ink:#111; --bg:#f6f7fb;
+
+    --rowH:20px;            /* wheel row height */
+    --genderIcon:32px;      /* <<< control Male/Female icon size here */
+    --bandOffset:2px;       /* subtle vertical nudge for the wheel highlight */
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,Segoe UI,Roboto,Arial}
+  .wrap{max-width:980px;margin:24px auto;padding:12px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:36px;padding:28px;box-shadow:0 10px 24px rgba(0,0,0,.07)}
+  h1{margin:0 0 18px;font-size:40px}
+  label{display:block;font-weight:800;margin:16px 0 8px}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .col{flex:1 1 280px}
+
+  /* gender */
+  .gender{display:flex;overflow:hidden;border-radius:28px;border:1px solid #e5e7eb;width:640px;max-width:100%}
+  .gender button{
+    flex:1;padding:14px 18px;border:0;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:10px;
+    font-weight:800;background:#f3f4f6
+  }
+  .gender .female{background:var(--pinkSoft)}
+  .gender .male{background:var(--blueSoft)}
+  .gender .na{background:var(--graySoft)}
+  .gender .active.female{background:var(--pink);color:#fff}
+  .gender .active.male{background:var(--blue);color:#fff}
+  .gender .active.na{background:var(--gray);color:#fff}
+
+  /* big icons controlled by --genderIcon */
+  .gender .icon{
+    font-size:var(--genderIcon);
+    line-height:1;
+    display:inline-block;
+  }
+  .gender .label{
+    font-size:18px;
+    font-weight:800;
+  }
+
+  /* USD field */
+  .field{position:relative}
+  .prefix{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#6b7280;font-weight:700}
+  .input{width:100%;padding:14px 16px 14px 60px;border-radius:18px;border:2px solid #e5e7eb;font-size:20px;background:#fff;outline:0}
+  .input:focus{border-color:#0ea5e9;box-shadow:0 0 0 4px rgba(14,165,233,.12)}
+
+  /* single-bar sliders */
+  .range{
+    width:100%;height:16px;appearance:none;border-radius:999px;
+    background:linear-gradient(to right, var(--blue) 0%, var(--blue) 0%, var(--track) 0%, var(--track) 100%);
+    outline:0;margin-top:6px
+  }
+  .range::-webkit-slider-thumb{
+    appearance:none;width:28px;height:28px;border-radius:50%;
+    background:#fff;border:3px solid #93c5fd;box-shadow:0 4px 10px rgba(0,0,0,.18);
+    cursor:pointer;margin-top:-6px
+  }
+  .range::-webkit-slider-runnable-track{height:16px;border-radius:999px;background:transparent}
+  .range::-moz-range-track{height:16px;border-radius:999px;background:transparent}
+  .range::-moz-range-progress{height:16px;border-radius:999px;background:var(--blue)}
+  .ticks{display:flex;justify-content:space-between;color:#6b7280;font-size:12px;margin-top:6px}
+
+  /* number wheels */
+  .picker{position:relative}
+  .wheel{
+    height: calc(var(--rowH) * 5);
+    overflow-y:auto;border:2px solid #e5e7eb;border-radius:18px;background:#fff;
+    scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;
+    mask-image:linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%);
+    box-shadow:inset 0 10px 14px -14px rgba(0,0,0,.25), inset 0 -10px 14px -14px rgba(0,0,0,.25)
+  }
+  .wheel::-webkit-scrollbar{width:0;height:0}
+  .wheel ul{list-style:none;margin:0;padding:0}
+  .wheel li{
+    height:var(--rowH);display:flex;align-items:center;justify-content:center;
+    font-size:16px;font-weight:700;scroll-snap-align:center;color:#9ca3af;transition:all .12s ease
+  }
+  .wheel li.active{font-size:20px;color:#111}
+
+  .center-band{
+    position:absolute;left:12px;right:12px;
+    height:var(--rowH);border-radius:10px;background:rgba(147,197,253,.10);
+    outline:2px solid #93c5fd;outline-offset:0;pointer-events:none;
+    /* top set by JS; we nudge it slightly with --bandOffset */
+    transform: translateY(calc(-50% + var(--bandOffset)));
+  }
+
+  .actions{margin-top:20px;display:flex;gap:12px;align-items:center}
+  .btn{padding:14px 18px;border:0;border-radius:18px;background:#111;color:#fff;font-weight:800;cursor:pointer;font-size:16px}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .ok{color:#059669;font-weight:800}
+  .err{color:#dc2626;font-weight:800}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>AquaSpec survey</h1>
+
+    <form id="survey" novalidate>
+      <label>Gender</label>
+      <div class="gender" id="genderToggle">
+        <button type="button" class="female" data-gender="female">
+          <span class="icon">♀</span><span class="label">Female</span>
+        </button>
+        <button type="button" class="male" data-gender="male">
+          <span class="icon">♂</span><span class="label">Male</span>
+        </button>
+        <button type="button" class="na" data-gender="prefer_not_to_say">
+          <span class="label">Prefer not to say</span>
+        </button>
+      </div>
+      <input type="hidden" id="gender" />
+
+      <div class="row">
+        <div class="col picker">
+          <label>Age</label>
+          <div class="wheel" id="ageWheel" aria-label="Age wheel"><ul></ul></div>
+          <div class="center-band" aria-hidden="true"></div>
+          <input id="age" type="hidden" value="22" />
+        </div>
+
+        <div class="col picker">
+          <label># of tanks</label>
+          <div class="wheel" id="tanksWheel" aria-label="Tanks wheel"><ul></ul></div>
+          <div class="center-band" aria-hidden="true"></div>
+          <input id="tanks" type="hidden" value="10" />
+        </div>
+      </div>
+
+      <div class="col">
+        <label>How much would you be willing to pay for the AquaSpec</label>
+        <div class="field">
+          <span class="prefix">USD</span>
+          <input id="willing" class="input" type="number" min="0" step="1" placeholder="0" required />
+        </div>
+      </div>
+
+      <div class="col">
+        <label>How difficult is it to test aquarium water</label>
+        <input id="testDiff" type="range" min="0" max="10" value="0" class="range" />
+        <div class="ticks"><span>Easy 0</span><span id="testVal">0</span><span>Hard 10</span></div>
+      </div>
+
+      <div class="col">
+        <label>How difficult is it to maintain good water chemistry</label>
+        <input id="chemDiff" type="range" min="0" max="10" value="0" class="range" data-color="red" />
+        <div class="ticks"><span>Easy 0</span><span id="chemVal">0</span><span>Hard 10</span></div>
+      </div>
+
+      <div class="actions">
+        <button id="saveBtn" class="btn" type="submit">Submit</button>
+        <span id="msg"></span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = "https://dbfglovgjuzqiejekflg.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRiZmdsb3ZnanV6cWllamVrZmxnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4ODI2NzQsImV4cCI6MjA1OTQ1ODY3NH0.mzRht4dDiCC9GQlX_5c1K_UJKWXvKeAHPBHqBVNsHvU";
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Gender with deselect
+  const genderToggle = document.getElementById("genderToggle");
+  const genderInput = document.getElementById("gender");
+  genderToggle.addEventListener("click", e => {
+    const btn = e.target.closest("button[data-gender]");
+    if(!btn) return;
+    const on = btn.classList.contains("active");
+    [...genderToggle.querySelectorAll("button")].forEach(b=>b.classList.remove("active"));
+    genderInput.value = on ? "" : btn.dataset.gender;
+    if(!on) btn.classList.add("active");
+  });
+
+  // Range fill
+  const test = document.getElementById("testDiff");
+  const chem = document.getElementById("chemDiff");
+  const testVal = document.getElementById("testVal");
+  const chemVal = document.getElementById("chemVal");
+  function setFill(el, color){
+    const pct = Number(el.value) / Number(el.max) * 100;
+    const bar = color === "red" ? "var(--red)" : "var(--blue)";
+    el.style.background = `linear-gradient(to right, ${bar} 0%, ${bar} ${pct}%, var(--track) ${pct}%, var(--track) 100%)`;
+  }
+  function sync(el, label){ setFill(el, el.dataset.color); label.textContent = el.value; }
+  [test,chem].forEach(r => { r.addEventListener("input",()=>sync(r, r===test?testVal:chemVal)); sync(r, r===test?testVal:chemVal); });
+
+  // Center the highlight band over a wheel
+  function centerHighlight(wheelEl){
+    const band = wheelEl.parentElement.querySelector('.center-band');
+    if(!band) return;
+    const top = wheelEl.offsetTop + wheelEl.clientHeight / 2;
+    band.style.top = `${top}px`;
+    band.style.height = `${wheelEl.clientHeight / 5}px`; // one visible row
+  }
+
+  // Wheels: 5-row viewport with two ghost rows on each end
+  function buildWheel(wheelEl, min, max, start, hidden){
+    const ul = wheelEl.querySelector("ul");
+    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--rowH'));
+    ul.innerHTML = "";
+    for(let i=0;i<2;i++) ul.appendChild(li("ghost",""));
+    for(let n=min;n<=max;n++) ul.appendChild(li("", String(n)));
+    for(let i=0;i<2;i++) ul.appendChild(li("ghost",""));
+
+    function nearestValue(){ return Math.round(wheelEl.scrollTop / rowH); }
+    function clamp(v){ return Math.min(max, Math.max(min, v)); }
+
+    function applyActive(){
+      const idx = nearestValue() + 2;
+      [...ul.children].forEach((node,i)=>node.classList.toggle("active", i===idx));
+    }
+    function snap(){
+      const v = clamp(nearestValue());
+      wheelEl.scrollTop = v * rowH;
+      hidden.value = v;
+      applyActive();
+    }
+
+    wheelEl.scrollTop = (start - min) * rowH;
+    hidden.value = start;
+    applyActive();
+
+    let t=null;
+    wheelEl.addEventListener("scroll", ()=>{
+      if(t) clearTimeout(t);
+      t = setTimeout(snap, 60);
+    });
+
+    centerHighlight(wheelEl);
+
+    function li(cls,text){ const e=document.createElement("li"); if(cls) e.className=cls; e.textContent=text; return e; }
+  }
+
+  // Build wheels
+  const ageWheel = document.getElementById("ageWheel");
+  const tanksWheel = document.getElementById("tanksWheel");
+  buildWheel(ageWheel, 1, 120, 22, document.getElementById("age"));
+  buildWheel(tanksWheel, 0, 100, 10, document.getElementById("tanks"));
+
+  // Recenter bands on resize
+  window.addEventListener('resize', () => {
+    centerHighlight(ageWheel);
+    centerHighlight(tanksWheel);
+  });
+
+  // Submit
+  const form = document.getElementById("survey");
+  const msg = document.getElementById("msg");
+  const saveBtn = document.getElementById("saveBtn");
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    msg.textContent = ""; msg.className = ""; saveBtn.disabled = true;
+
+    const payload = {
+      gender: genderInput.value || null,
+      age: Number(document.getElementById("age").value),
+      tanks: Number(document.getElementById("tanks").value),
+      willing_to_pay_usd: Number(document.getElementById("willing").value),
+      difficulty_test: Number(test.value),
+      difficulty_chemistry: Number(chem.value)
+    };
+
+    const { error } = await supabase.from("onepageentries").insert([payload]);
+    if(error){ msg.className="err"; msg.textContent="Save failed. " + error.message; }
+    else{
+      msg.className="ok"; msg.textContent="Saved";
+      form.reset();
+      [...genderToggle.querySelectorAll("button")].forEach(b=>b.classList.remove("active"));
+      [test,chem].forEach(r=>{ r.value=0; sync(r, r===test?testVal:chemVal); });
+      genderInput.value="";
+      buildWheel(ageWheel, 1, 120, 22, document.getElementById("age"));
+      buildWheel(tanksWheel, 0, 100, 10, document.getElementById("tanks"));
+      centerHighlight(ageWheel);
+      centerHighlight(tanksWheel);
+    }
+    saveBtn.disabled = false;
+  });
+</script>
+</body>
+</html>
